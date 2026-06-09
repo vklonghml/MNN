@@ -122,25 +122,47 @@ void Arm82BinaryWrap(void *dstRaw, const void *src0Raw, const void *src1Raw, con
 template<typename Func>
 void Arm82Binary(void *dstRaw, const void *src0Raw, const void *src1Raw, const int elementSize, const int needBroadcastIndex) {
     auto dst = (FLOAT16*)dstRaw;
-    auto src0 = (FLOAT16*)src0Raw;
-    auto src1 = (FLOAT16*)src1Raw;
+    auto src0 = (const FLOAT16*)src0Raw;
+    auto src1 = (const FLOAT16*)src1Raw;
     Func compute;
+    constexpr int unroll = 8;
     const int sizeDivUnit = elementSize / ARMV82_CHANNEL_UNIT;
+    const int sizeDivUnitU = sizeDivUnit / unroll;
+    const int sizeDivUnitRemain = sizeDivUnit - sizeDivUnitU * unroll;
     const int remainCount = elementSize - sizeDivUnit * ARMV82_CHANNEL_UNIT;
 
     if (-1 == needBroadcastIndex) {
-        if (sizeDivUnit > 0) {
-            for (int i = 0; i < sizeDivUnit; ++i) {
-                const auto src0Ptr = src0;
-                const auto src1Ptr = src1;
-                auto dstPtr = dst;
-                float16x8_t a = vld1q_f16(src0Ptr);
-                float16x8_t b = vld1q_f16(src1Ptr);
-                vst1q_f16(dstPtr, compute(a, b));
-                src0 += 8;
-                src1 += 8;
-                dst += 8;
-            }
+        for (int i = 0; i < sizeDivUnitU; ++i) {
+            vst1q_f16(dst + 0, compute(vld1q_f16(src0 + 0), vld1q_f16(src1 + 0)));
+            vst1q_f16(dst + 8, compute(vld1q_f16(src0 + 8), vld1q_f16(src1 + 8)));
+            vst1q_f16(dst + 16, compute(vld1q_f16(src0 + 16), vld1q_f16(src1 + 16)));
+            vst1q_f16(dst + 24, compute(vld1q_f16(src0 + 24), vld1q_f16(src1 + 24)));
+            vst1q_f16(dst + 32, compute(vld1q_f16(src0 + 32), vld1q_f16(src1 + 32)));
+            vst1q_f16(dst + 40, compute(vld1q_f16(src0 + 40), vld1q_f16(src1 + 40)));
+            vst1q_f16(dst + 48, compute(vld1q_f16(src0 + 48), vld1q_f16(src1 + 48)));
+            vst1q_f16(dst + 56, compute(vld1q_f16(src0 + 56), vld1q_f16(src1 + 56)));
+            src0 += ARMV82_CHANNEL_UNIT * unroll;
+            src1 += ARMV82_CHANNEL_UNIT * unroll;
+            dst += ARMV82_CHANNEL_UNIT * unroll;
+        }
+        int remainUnit = sizeDivUnitRemain;
+        if (remainUnit >= 4) {
+            vst1q_f16(dst + 0, compute(vld1q_f16(src0 + 0), vld1q_f16(src1 + 0)));
+            vst1q_f16(dst + 8, compute(vld1q_f16(src0 + 8), vld1q_f16(src1 + 8)));
+            vst1q_f16(dst + 16, compute(vld1q_f16(src0 + 16), vld1q_f16(src1 + 16)));
+            vst1q_f16(dst + 24, compute(vld1q_f16(src0 + 24), vld1q_f16(src1 + 24)));
+            src0 += ARMV82_CHANNEL_UNIT * 4;
+            src1 += ARMV82_CHANNEL_UNIT * 4;
+            dst += ARMV82_CHANNEL_UNIT * 4;
+            remainUnit -= 4;
+        }
+        for (; remainUnit > 0; --remainUnit) {
+            float16x8_t a = vld1q_f16(src0);
+            float16x8_t b = vld1q_f16(src1);
+            vst1q_f16(dst, compute(a, b));
+            src0 += 8;
+            src1 += 8;
+            dst += 8;
         }
         if (remainCount > 0) {
             FLOAT16 tempSrc0[8];
@@ -156,15 +178,33 @@ void Arm82Binary(void *dstRaw, const void *src0Raw, const void *src1Raw, const i
     } else if (0 == needBroadcastIndex) {
         const FLOAT16 srcValue0 = src0[0];
         float16x8_t a = vmovq_n_f16(srcValue0);
-        if (sizeDivUnit > 0) {
-            for (int i = 0; i < sizeDivUnit; ++i) {
-                const auto src1Ptr = src1;
-                auto dstPtr = dst;
-                float16x8_t b = vld1q_f16(src1Ptr);
-                vst1q_f16(dstPtr, compute(a, b));
-                src1 += 8;
-                dst += 8;
-            }
+        for (int i = 0; i < sizeDivUnitU; ++i) {
+            vst1q_f16(dst + 0, compute(a, vld1q_f16(src1 + 0)));
+            vst1q_f16(dst + 8, compute(a, vld1q_f16(src1 + 8)));
+            vst1q_f16(dst + 16, compute(a, vld1q_f16(src1 + 16)));
+            vst1q_f16(dst + 24, compute(a, vld1q_f16(src1 + 24)));
+            vst1q_f16(dst + 32, compute(a, vld1q_f16(src1 + 32)));
+            vst1q_f16(dst + 40, compute(a, vld1q_f16(src1 + 40)));
+            vst1q_f16(dst + 48, compute(a, vld1q_f16(src1 + 48)));
+            vst1q_f16(dst + 56, compute(a, vld1q_f16(src1 + 56)));
+            src1 += ARMV82_CHANNEL_UNIT * unroll;
+            dst += ARMV82_CHANNEL_UNIT * unroll;
+        }
+        int remainUnit = sizeDivUnitRemain;
+        if (remainUnit >= 4) {
+            vst1q_f16(dst + 0, compute(a, vld1q_f16(src1 + 0)));
+            vst1q_f16(dst + 8, compute(a, vld1q_f16(src1 + 8)));
+            vst1q_f16(dst + 16, compute(a, vld1q_f16(src1 + 16)));
+            vst1q_f16(dst + 24, compute(a, vld1q_f16(src1 + 24)));
+            src1 += ARMV82_CHANNEL_UNIT * 4;
+            dst += ARMV82_CHANNEL_UNIT * 4;
+            remainUnit -= 4;
+        }
+        for (; remainUnit > 0; --remainUnit) {
+            float16x8_t b = vld1q_f16(src1);
+            vst1q_f16(dst, compute(a, b));
+            src1 += 8;
+            dst += 8;
         }
         if (remainCount > 0) {
             FLOAT16 tempSrc1[8];
@@ -177,15 +217,33 @@ void Arm82Binary(void *dstRaw, const void *src0Raw, const void *src1Raw, const i
     } else {
         const FLOAT16 srcValue1 = src1[0];
         float16x8_t b = vmovq_n_f16(srcValue1);
-        if (sizeDivUnit > 0) {
-            for (int i = 0; i < sizeDivUnit; ++i) {
-                const auto src0Ptr = src0;
-                auto dstPtr = dst;
-                float16x8_t a = vld1q_f16(src0Ptr);
-                vst1q_f16(dstPtr, compute(a, b));
-                src0 += 8;
-                dst += 8;
-            }
+        for (int i = 0; i < sizeDivUnitU; ++i) {
+            vst1q_f16(dst + 0, compute(vld1q_f16(src0 + 0), b));
+            vst1q_f16(dst + 8, compute(vld1q_f16(src0 + 8), b));
+            vst1q_f16(dst + 16, compute(vld1q_f16(src0 + 16), b));
+            vst1q_f16(dst + 24, compute(vld1q_f16(src0 + 24), b));
+            vst1q_f16(dst + 32, compute(vld1q_f16(src0 + 32), b));
+            vst1q_f16(dst + 40, compute(vld1q_f16(src0 + 40), b));
+            vst1q_f16(dst + 48, compute(vld1q_f16(src0 + 48), b));
+            vst1q_f16(dst + 56, compute(vld1q_f16(src0 + 56), b));
+            src0 += ARMV82_CHANNEL_UNIT * unroll;
+            dst += ARMV82_CHANNEL_UNIT * unroll;
+        }
+        int remainUnit = sizeDivUnitRemain;
+        if (remainUnit >= 4) {
+            vst1q_f16(dst + 0, compute(vld1q_f16(src0 + 0), b));
+            vst1q_f16(dst + 8, compute(vld1q_f16(src0 + 8), b));
+            vst1q_f16(dst + 16, compute(vld1q_f16(src0 + 16), b));
+            vst1q_f16(dst + 24, compute(vld1q_f16(src0 + 24), b));
+            src0 += ARMV82_CHANNEL_UNIT * 4;
+            dst += ARMV82_CHANNEL_UNIT * 4;
+            remainUnit -= 4;
+        }
+        for (; remainUnit > 0; --remainUnit) {
+            float16x8_t a = vld1q_f16(src0);
+            vst1q_f16(dst, compute(a, b));
+            src0 += 8;
+            dst += 8;
         }
         if (remainCount > 0) {
             FLOAT16 tempSrc0[8];
@@ -197,7 +255,6 @@ void Arm82Binary(void *dstRaw, const void *src0Raw, const void *src1Raw, const i
         }
     }
 }
-
 
 struct VecBinaryAdd {
     float16x8_t operator()(const float16x8_t& x, const float16x8_t& y) const {
