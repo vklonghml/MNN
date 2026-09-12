@@ -387,10 +387,6 @@ bool Llm::load() {
         module_config.shapeMutable = true;
     }
     module_config.rearrange    = true;
-    // using base module for lora module
-    if (mBaseModule != nullptr) {
-        module_config.base = mBaseModule;
-    }
     // load single model
     std::vector<std::string> inputNames {"input_ids", "attention_mask", "position_ids", "logits_index"};
     std::vector<std::string> outputNames {"logits"};
@@ -484,6 +480,10 @@ bool Llm::load() {
     }
     mContext->load_us += _t.durationInUs();
     mContext->status = LlmStatus::RUNNING;  // Set status to RUNNING after successful load
+    // init deepstack placeholder for visual models, same as Omni::load
+    if (mConfig->has_deepstack()) {
+        mDeepstackInput = Express::_Fill(_var<int>({3, 1, 1}, {3}), _Scalar<float>(0.0));
+    }
     return true;
 }
 
@@ -627,6 +627,10 @@ std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::V
     mGenerateParam->validLogitSize = 0;
     mGenerateParam->validLogitStart = 0;
     std::vector<Express::VARP> inputs {hiddenState, mask, inputPos, logitsIndex};
+    // deepstack arg for visual models; when Omni has not supplied via mExtraArgs, add here
+    if (mConfig->has_deepstack() && mDeepstackInput.get() && extraArgs.empty()) {
+        extraArgs.push_back(mDeepstackInput);
+    }
     inputs.insert(inputs.end(), extraArgs.begin(), extraArgs.end());
     std::vector<Express::VARP> outputs = selectModule->onForward(inputs);
 
